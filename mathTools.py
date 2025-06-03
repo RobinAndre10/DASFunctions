@@ -436,3 +436,17 @@ def load_Processed_DAS_data(path2data):
 def wiggle(xx,yy,offset,clrLine,clrFill):
     plt.plot(xx,yy,'-',color=clrLine) # Normal wigigle    
     plt.fill_betweenx(yy,offset,xx,where=(x>=offset),color=clrFill) # Fill positive valuesc
+
+def compute_RMS(data, axisNum):
+    """
+    Compute the root mean square (RMS) of the input data along a specified axis.
+    Parameters:
+    data (numpy array): The input data array.
+    axisNum (int): The axis along which to compute the RMS. 0 for rows, 1 for columns.
+    Returns:
+    rms (numpy array): The RMS of the input data along the specified axis.
+    """
+
+    dataInRMS = np.sqrt(np.mean(np.square(data), axis=axisNum))
+
+    return dataInRMS
