@@ -450,3 +450,35 @@ def compute_RMS(data, axisNum):
     dataInRMS = np.sqrt(np.mean(np.square(data), axis=axisNum))
 
     return dataInRMS
+
+def strain2strainRate(data, dt):
+    """
+    Convert strain data to strain rate data by temporal differentiation.
+    
+    Parameters:
+    data (matrix): The input strain data matrix [distance, time].
+    dt (float): The time step [s].
+    
+    Returns:
+    strainRate (numpy array): The converted strain rate data matrix.
+    """
+    
+    strainRate = np.diff( data, 1 ) / dt
+    
+    return strainRate
+
+def strainRate2strain(data, dt):
+    """
+    Convert strain rate data to strain data by temporal integration.
+    
+    Parameters:
+    data (matrix): The input strain rate data matrix [distance, time].
+    dt (float): The time step [s].
+    
+    Returns:
+    strain (numpy array): The converted strain data matrix.
+    """
+    
+    strain = np.cumsum( data, axis=1 ) * dt
+    
+    return strain
