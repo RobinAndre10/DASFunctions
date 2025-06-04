@@ -482,3 +482,39 @@ def strainRate2strain(data, dt):
     strain = np.cumsum( data, axis=1 ) * dt
     
     return strain
+
+def changeGaugeLength(data,oldROIDec,newGL,newROIDec,windowType):
+    """
+    INPUT:
+    data = Original data with gauge length eqaul to 'oldGL' (size [time,space])
+    olddx = Spatial sampling of original data
+    newGL = The new gauge length that is wanted
+    filterType = The wanted filter type (normally from -newGL/2 tp +newGL/2).
+    Options: 'triangle'
+    -------------------------------------------------------------------------
+    Return:
+    newData = Data with new gauge length
+    newGL = The new gauge length that is wanted
+    """
+    
+    if windowType.lower() in ['rectwin', 'rectangularwindow', 'squarewindow', 'squarwin']:
+        sigma = np.ones(len(np.arange(-round(newGL/2), round(newGL/2)+1, oldROIDec)))
+    elif windowType.lower() in ['triang', 'triangle', 'triangle']:
+        sigma = sp.signal.triang(len(np.arange(-round(newGL/2), round(newGL/2)+1, oldROIDec)))
+    else:
+        raise ValueError("Unknown windowType")
+
+    newData = np.zeros_like(data)
+    for it in range(data.shape[0]):
+        newData[it, :] = sp.signal.convolve(data[it, :], sigma, mode='same')
+
+    if oldROIDec != newROIDec:
+        decRate = newROIDec / oldROIDec
+    if newROIDec % oldROIDec == 0:
+        decRate = int(decRate)
+        newData = newData[:, ::decRate]
+    else:
+        print('Warning: New spatial sampling (dx) is not an integer multiple of the old. The old is kept.')
+
+
+    return newData, newGL
