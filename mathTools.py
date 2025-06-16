@@ -519,6 +519,47 @@ def changeGaugeLength(data,oldROIDec,newGL,newROIDec,windowType):
 
     return newData, newGL
 
+ 
+def makeAudioFile(signal, Fs, path2save, fileName, nMethod):
+    """
+    Function to save a signal as an audio file.
+   
+    Parameters:
+    signal (numpy array): The input signal to be saved as an audio file.
+    Fs (float): The sample rate of the signal [Hz].
+    path2save (str): The path where the audio file should be saved.
+    fileName (str): The name of the audio file to be saved.
+    nMethod (int): Three methods available that should provide the same result:
+        1. scipy.io.wavfile.write
+        2. soundfile.write
+        3. wave module
+   
+    Returns:
+    None
+    """
+    output_filename = path2save + fileName
+    signal_normalized_4audio = signal / np.max(np.abs(signal))  # Normalize the signal to the range [-1, 1]
+ 
+    if nMethod == 1:
+        from scipy.io.wavfile import write      
+        # Convert to 16-bit PCM format
+        signal_audio = np.int16(signal_normalized_4audio * 32767) # 32767 is the maximum value for 16-bit signed integers, use this
+        # Save as WAV file
+        write(output_filename, int(Fs), signal_audio)
+ 
+    elif nMethod == 2:
+        import soundfile as sf
+        sf.write(output_filename, signal_normalized_4audio, int(Fs), subtype='PCM_16')
+ 
+    elif nMethod == 3:
+        import wave
+        signal_audio = np.int16(signal_normalized_4audio * 32767) # 32767 is the maximum value for 16-bit signed integers, use this
+        with wave.open(output_filename, 'w') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)  # 16 bits = 2 bytes
+            wf.setframerate(int(Fs))
+            wf.writeframes(signal_audio.tobytes())
+ 
 def loadCSV(path2csv,filename,nHeader,delimiter):
 #    import pandas as pd
 
