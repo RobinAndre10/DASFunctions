@@ -518,3 +518,13 @@ def changeGaugeLength(data,oldROIDec,newGL,newROIDec,windowType):
 
 
     return newData, newGL
+
+def loadCSV(path2csv,filename,nHeader,delimiter):
+#    import pandas as pd
+
+    if nHeader == 0:
+        df = pd.read_csv(path2csv + filename, header=None, delimiter=delimiter)
+    else: 
+        df = pd.read_csv(path2csv + filename, header=nHeader, delimiter=delimiter)
+
+    return df    
