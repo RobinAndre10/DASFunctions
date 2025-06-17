@@ -569,3 +569,20 @@ def loadCSV(path2csv,filename,nHeader,delimiter):
         df = pd.read_csv(path2csv + filename, header=nHeader, delimiter=delimiter)
 
     return df    
+
+def saveCSV(path2csv,filename,data,delimiter):
+    """
+    Function to save a DataFrame to a CSV file.
+    
+    Parameters:
+    path2csv (str): The path where the CSV file should be saved.
+    filename (str): The name of the CSV file to be saved.
+    data (DataFrame): The DataFrame to be saved.
+    delimiter (str): The delimiter to use in the CSV file.
+    
+    Returns:
+    None
+    """
+    data.to_csv(path2csv + filename, index=False, sep=delimiter)
+
+    
