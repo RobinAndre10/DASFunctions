@@ -586,3 +586,25 @@ def saveCSV(path2csv,filename,data,delimiter):
     data.to_csv(path2csv + filename, index=False, sep=delimiter)
 
     
+def concatenate_DAS_timeaxis(signal_part1,signal_part2):
+    """
+    Function that will concatenate DAS data along the time axis. 
+    As DAS data always start at 0 strain at the first time indes,
+    we need to shift the signal being concatetanated (part 2) to
+    the first part 1. This also incude removing any non strain value
+    in the start (if you do not start at t = 0)
+
+    Parameters:
+    signal_part1 (numpy matrix, (nx, nt)): The first part to be concatenated. 
+    signal_part2 (numpy matrix, (nx, nt)): The second part to be concatenated. This one will be shifted.
+
+    Return:
+    signal: The concatenated matrix.
+    """
+
+    if signal_part2.shape[0] != signal_part1.shape[0]:
+        raise ValueError("signal_part1 and signal_part2 must have the same number of rows (spatial channels).")
+
+    signal = np.concatenate((signal_part1, signal_part2-signal_part2[:,[0]]+signal_part1[:,[-1]]),1)
+
+    return signal
