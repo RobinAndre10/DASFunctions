@@ -625,6 +625,8 @@ def channelBychannel_detection(trace,typeAlgo,nSTA,nLTA):
     Return:
     idxTriggerTime: Index along the time axis for the detection.
     """
+    from obspy.signal.trigger import classic_sta_lta, recursive_sta_lta, plot_trigger
+   
     if typeAlgo == 'stalta':
         cft = recursive_sta_lta( trace, nSTA, nLTA)
         idxTriggerTime = np.argmax(np.abs(cft))
