@@ -449,7 +449,7 @@ def compute_RMS(data, axisNum):
 
     dataInRMS = np.sqrt(np.mean(np.square(data), axis=axisNum))
 
-    return dataInRMS
+    return dataInRMS 
 
 def strain2strainRate(data, dt):
     """
@@ -636,3 +636,18 @@ def channelBychannel_detection(trace,typeAlgo,nSTA,nLTA):
     return idxTriggerTime
 
 
+def geocoord2utmcoord(lat,lon):
+    """
+    Simple script converting latitude longitude pair to utm pair.
+    """
+    easting, northing, zone_number, zone_letter = utm.from_latlon(lat, lon)
+
+    return easting, northing, zone_number, zone_letter
+
+def utmcorrd2geocoord(easting, northing, zone_number, zone_letter):
+    """
+    Simple script converting utm pair to latitude longitude pair.
+    """
+    lat, lon = utm.to_latlon(easting, northing, zone_number, zone_letter)
+
+    return lat, lon
