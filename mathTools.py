@@ -61,7 +61,7 @@ def timeDomainWindow(type, length, alpha):
     elif type == 'blackman':
         window = sp.signal.windows.blackman(length)
 
-    return window
+    return window 
 
 
 def demean_array(data):
@@ -328,8 +328,7 @@ def filter_time_domain(data, filterOrder, filter_type, cutoff_freq, Fs, tprRate)
     # Function done, return wanted value(s)
     return data_filtered
 
-
-def fx_domain(data, Fs, padding, tprRate):
+def fx_domain(data, Fs, padding, tprRate, flipping):
     """
     Function to transform the input 2-dimensional data to the f-x domain.
     Parameters:
@@ -339,23 +338,55 @@ def fx_domain(data, Fs, padding, tprRate):
     Return:
     signal_FXdom (numpy matrix, nx X nt): The transformed data in the f-x domain.
     """
-    window = timeDomainWindow('tukey', data.shape[1], tprRate)
 
-    if padding == True:
-        signal_FXdom = np.zeros( (np.int32(data.shape[0]), np.int32(2**nextpow2(data.shape[1]))), dtype=float )
+    # This will flip the ends of the time axis and taper that part and not the signal of interest
+    if flipping == True: 
+        # One example flip to get the zeros below correct
+        dataT = data[0,:]
+        window = timeDomainWindow('tukey', len(dataT), tprRate)
+        # Flip each side according to where the taper is not equal to 1
+        nidxNot0 = int(len( np.where( window < 1 )[0] )*5)
+        del window
+        trace2useA = np.concatenate( (dataT[nidxNot0:1:-1], dataT, dataT[-1:-nidxNot0:-1]) )
+        nTimeWindow = len(trace2useA)
+        window = timeDomainWindow('tukey', nTimeWindow, tprRate)
+        del trace2useA    
+    else:
+        window = timeDomainWindow('tukey', data.shape[1], tprRate)        
+
+    if padding == True and flipping == True:
+        signal_FXdom = np.zeros( (np.int32(data.shape[0]), np.int32(2**nextpow2(nTimeWindow))), dtype=float )
 
         for i in range(data.shape[0]):    
             print(f'Working on channel {i+1} of {data.shape[0]}')
-            signal_FXdom[i,:], ff = my_fft(data[i,:]*window, Fs, True)
+            dataF = np.concatenate( (data[i,nidxNot0:1:-1], data[i,:], data[i,-1:-nidxNot0:-1]) )
+            window = timeDomainWindow('tukey', len(dataF), tprRate)
+            data2fx = dataF*window
+            signal_FXdom[i,:], ff = my_fft(data2fx, Fs, True)
+
+            if i == 100:
+                plt.figure
+                plt.subplot(211)
+                plt.plot(dataF,'red')
+                plt.plot(data2fx,'black')
+                plt.plot(window*np.max(dataF),'blue')
+                plt.subplot(212)
+                plt.plot(abs(signal_FXdom[i,:]))
+                plt.show()
+                            
+    elif padding == True and flipping == False:
+        signal_FXdom = np.zeros( (np.int32(data.shape[0]), np.int32(2**nextpow2(data.shape[1]))), dtype=float )
+ 
+        for i in range(data.shape[0]):    
+            print(f'Working on channel {i+1} of {data.shape[0]}')
+            signal_FXdom[i,:], ff = my_fft(data[i,:]*window, Fs, True)         
+
     else:
         signal_FXdom = np.zeros( (np.int32(data.shape[0]), np.int32(data.shape[1])), dtype=float )
 
         for i in range(data.shape[0]):    
             print(f'Working on channel {i+1} of {data.shape[0]}')
             signal_FXdom[i,:], ff = my_fft(data[i,:]*window, Fs, False)
-
-    # Compute amplitude spectrum
-    #amp_signal_FXdom = np.abs(signal_FXdom.T)
 
     return signal_FXdom, ff
 
@@ -392,7 +423,7 @@ def fk_domain(data, dx, dt, padding):
 
     print(f'Size input matrix = {np.shape(data)}, shape 2D fft return = {np.shape(amp_fft2_signal)}')
 
-    return amp_fft2_signal, kk, ff
+    return amp_fft2_signal, kk, ff 
 
 class DASmeta:
     def __init__(self, path2data, dx, dt):
@@ -416,6 +447,7 @@ def load_Processed_DAS_data(path2data):
     date (numpy matrix of size (nx, nt)): The loaded data
     meta (Class): metadata of the loaded data
     """
+    # from scipy.io import loadmat
 
     # Find extension in order to load the data correctly
     fileformat = path2data.split('.')[-1]
