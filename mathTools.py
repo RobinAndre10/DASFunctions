@@ -685,3 +685,36 @@ def utmcorrd2geocoord(easting, northing, zone_number, zone_letter):
     lat, lon = utm.to_latlon(easting, northing, zone_number, zone_letter)
 
     return lat, lon
+
+
+def robust_polyfit(x, y, degree=1, norm=None):
+    """
+    Robust polynomial fit using statsmodels.RLM.
+    
+    Parameters:
+        x, y: 1D arrays of data points
+        degree: Degree of polynomial (default = 1)
+        norm: Robust norm (default = TukeyBiweight)
+
+    Returns:
+        coeffs: Polynomial coefficients (highest degree first, like np.polyfit)
+        y_fit: Fitted y values at x
+    """
+    x = np.asarray(x)
+    y = np.asarray(y)
+
+    # Construct design matrix: [1, x, x^2, ..., x^degree]
+    X = np.vstack([x**i for i in range(degree + 1)]).T
+
+    # Choose robust norm (TukeyBiweight ~ MATLAB 'bisquare')
+    if norm is None:
+        norm = sm.robust.norms.TukeyBiweight()
+
+    # Fit robust model
+    model = sm.RLM(y, X, M=norm)
+    results = model.fit()
+
+    coeffs = results.params[::-1]  # Reverse to match np.polyfit (highest degree first)
+    y_fit = results.predict(X)
+
+    return coeffs, y_fit
