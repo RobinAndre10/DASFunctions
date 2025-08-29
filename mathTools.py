@@ -16,7 +16,7 @@ def nextpow2(n):
     Returns the exponent of the next power of 2 greater than or equal to n. Often used to improve the fft function.
     """
     return np.ceil(np.log2(n)).astype(int)
-
+    
 def my_fft(signal, Fs, padding):
     """
     Function to find the index of the nearest value in an given array. 
@@ -639,7 +639,7 @@ def concatenate_DAS_timeaxis(signal_part1,signal_part2):
 
     signal = np.concatenate((signal_part1, signal_part2-signal_part2[:,[0]]+signal_part1[:,[-1]]),1)
 
-    return signal
+    return signal 
 
 def channelBychannel_detection(trace,typeAlgo,nSTA,nLTA):
     """
