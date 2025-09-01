@@ -465,6 +465,19 @@ def load_Processed_DAS_data(path2data):
 
     return data, meta, fileformat
 
+def load_mat_files(path2data):
+    """
+    This function load mat files
+    
+    Parameters:    
+    path2data (string): The path with filename to the loaded data.
+
+    Returns:
+    date (numpy matrix of size (nx, nt)): The loaded data
+    meta (Class): metadata of the loaded data
+    """
+    data = sp.io.loadmat(path2data)
+    return data
 def wiggle(xx,yy,offset,clrLine,clrFill):
     plt.plot(xx,yy,'-',color=clrLine) # Normal wigigle    
     plt.fill_betweenx(yy,offset,xx,where=(x>=offset),color=clrFill) # Fill positive valuesc
