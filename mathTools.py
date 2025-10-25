@@ -41,8 +41,8 @@ def my_fft(signal, Fs, padding):
 
     # Shift the FFT
     absSIGNAL = np.abs( np.fft.fftshift(SIGNAL) )
-    phaSIGNAL     = np.angle( np.fft.fftshift(SIGNAL) ) 
-    print('running fft')
+    phaSIGNAL = np.angle( np.fft.fftshift(SIGNAL) ) 
+
     # Frequency vector
     ff = Fs * np.arange(-nfft/2, nfft/2) / nfft
 
