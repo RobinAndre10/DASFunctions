@@ -6,7 +6,6 @@
 #import matplotlib.pyplot as plt
 #import pandas as pd
 
-
 def testFun(n):
     n2 = 2*n
     return n2
@@ -29,16 +28,25 @@ def my_fft(signal, Fs, padding):
     ff is the frequency vector of the signal containing both positive and negative spectral components.
     ffOnlyPos is the frequency vector of the signal containing only positive spectral components.
     """
-    if padding == True:
-        SIGNAL = np.fft.fft(signal,2**nextpow2(len(signal)))
+    if padding:
+        nfft = 2 ** nextpow2(len(signal))
     else:
-        SIGNAL = np.fft.fft(signal,len(signal))
-    # FFt shift the signal such that it clearly shows the negative and positive frequencies
-    SIGNAL = np.fft.fftshift(SIGNAL)     
-    # Define frequency vector
-    ff = Fs * np.arange(-len(SIGNAL)/2,len(SIGNAL)/2,1) / len(SIGNAL) # Based on the sample rate Fs and the amount of data points in the fft'ed signal - define the frequency vector
-    #ffOnlyPos = Fs * np.arange(len(SIGNAL)/2) / len(SIGNAL)
-    return SIGNAL, ff
+        nfft = len(signal)
+    
+    # Compute FFT
+    SIGNAL = np.fft.fft(signal, nfft)
+    
+    # Normalize by the number of points 
+    SIGNAL = SIGNAL / nfft
+
+    # Shift the FFT
+    absSIGNAL = np.abs( np.fft.fftshift(SIGNAL) )
+    phaSIGNAL     = np.angle( np.fft.fftshift(SIGNAL) ) 
+    print('running fft')
+    # Frequency vector
+    ff = Fs * np.arange(-nfft/2, nfft/2) / nfft
+
+    return absSIGNAL, ff, phaSIGNAL
 
 def timeDomainWindow(type, length, alpha):
     """
@@ -342,6 +350,7 @@ def fx_domain(data, Fs, padding, tprRate, flipping):
     # This will flip the ends of the time axis and taper that part and not the signal of interest
     if flipping == True: 
         # One example flip to get the zeros below correct
+
         dataT = data[0,:]
         window = timeDomainWindow('tukey', len(dataT), tprRate)
         # Flip each side according to where the taper is not equal to 1
@@ -386,8 +395,11 @@ def fx_domain(data, Fs, padding, tprRate, flipping):
 
         for i in range(data.shape[0]):    
             print(f'Working on channel {i+1} of {data.shape[0]}')
-            signal_FXdom[i,:], ff = my_fft(data[i,:]*window, Fs, False)
-
+            if tprRate != 0:
+                signal_FXdom[i,:], ff = my_fft(data[i,:]*window, Fs, False)
+            else:
+                signal_FXdom[i,:], ff = my_fft(data[i,:], Fs, False)
+            
     return signal_FXdom, ff
 
 def fk_domain(data, dx, dt, padding):
@@ -731,3 +743,32 @@ def robust_polyfit(x, y, degree=1, norm=None):
     y_fit = results.predict(X)
 
     return coeffs, y_fit
+
+from pyproj import CRS, Transformer
+
+def latlon_to_utm_svalbard(lat, lon):
+    """
+    Converts latitude/longitude to UTM coordinates in the correct Svalbard zone.
+    """
+    
+    # Determine correct UTM zone based on longitude
+    if 0 <= lon < 9:
+        zone = 31
+    elif 9 <= lon < 21:
+        zone = 33
+    elif 21 <= lon < 33:
+        zone = 35
+    elif 33 <= lon < 42:
+        zone = 37
+    else:
+        raise ValueError(f"Longitude {lon}° out of Svalbard UTM zone range (0–42°E).")
+
+    # Define CRS for WGS84 and target UTM
+    crs_wgs84 = CRS.from_epsg(4326)
+    crs_utm = CRS.from_epsg(32600 + zone)
+
+    # Transform coordinates
+    transformer = Transformer.from_crs(crs_wgs84, crs_utm, always_xy=True)
+    easting, northing = transformer.transform(lon, lat)
+
+    return easting, northing, zone
