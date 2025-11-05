@@ -1,10 +1,111 @@
-#import sys
-#sys.path.append('C:/Forskning/PythonCodes/simpleDAS')
-#import simpledas
-#import numpy as np
-#import scipy as sp
-#import matplotlib.pyplot as plt
-#import pandas as pd
+import sys
+sys.path.append('C:/Forskning/PythonCodes/simpleDAS')
+import simpledas
+import numpy as np
+import scipy as sp
+import matplotlib.pyplot as plt
+import pandas as pd
+from scipy.signal import spectrogram, get_window
+
+def compute_spectrogram(
+    x,
+    fs,
+    win_sec=1.0,
+    step_sec=0.25,
+    window="hann",
+    nfft=None,
+    detrend="constant",
+    scaling="density",   # "density" (V^2/Hz) or "spectrum" (V^2)
+    mode="psd",          # "psd", "magnitude", "complex", "phase"
+    to_db=True,
+    ref=1.0,             # reference for dB; if None, uses max of S for 0 dBFS-style scaling
+):
+    """
+    Compute a spectrogram for a 1-D waveform x sampled at fs (Hz).
+
+    Returns
+    -------
+    f : ndarray
+        Frequencies in Hz (size: n_freq)
+    t : ndarray
+        Time centers in seconds (size: n_time)
+    S : ndarray
+        Spectrogram (n_freq x n_time). dB-scaled if to_db=True.
+    """
+    x = np.asarray(x)
+    nperseg = int(round(win_sec * fs))
+    nstep   = int(round(step_sec * fs))
+    noverlap = max(0, nperseg - nstep)
+
+    if nfft is None:
+        # Use power-of-two >= nperseg for efficiency
+        nfft = 1 << (int(np.ceil(np.log2(max(1, nperseg)))))
+
+    win = get_window(window, nperseg, fftbins=True)
+
+    f, t, S = spectrogram(
+        x,
+        fs=fs,
+        window=win,
+        nperseg=nperseg,
+        noverlap=noverlap,
+        nfft=nfft,
+        detrend=detrend,
+        scaling=scaling,
+        mode=mode,
+    )
+
+    # Convert to magnitude before dB if needed
+    if mode == "psd":
+        S_lin = S  # already power (V^2/Hz or V^2)
+    elif mode == "magnitude":
+        S_lin = S**2 if scaling == "density" else S**2  # make it power-like
+    elif mode == "complex":
+        S_lin = np.abs(S)**2
+    elif mode == "phase":
+        S_lin = np.abs(np.exp(1j*S))  # not meaningful for dB; keep as is
+    else:
+        S_lin = S
+
+    if to_db:
+        if ref is None:
+            ref_val = np.max(S_lin) if np.max(S_lin) > 0 else 1.0
+        else:
+            ref_val = float(ref)
+        # Avoid log of zero
+        S = 10.0 * np.log10(np.maximum(S_lin, np.finfo(float).tiny) / ref_val)
+    else:
+        S = S_lin
+
+    return f, t, S
+
+def plot_spectrogram(
+    f, t, S,
+    figsize=(11.69, 8.27),          # A4 landscape
+    cmap="viridis",
+    vmin=None, vmax=None,
+    title="Spectrogram",
+    ylabel="Frequency (Hz)",
+    xlabel="Time (s)",
+    add_colorbar=True
+):
+    fig, ax = plt.subplots(figsize=figsize)
+    im = ax.imshow(
+        S,
+        aspect="auto",
+        origin="lower",
+        extent=[t[0], t[-1], f[0], f[-1]],
+        cmap=cmap,
+        vmin=vmin, vmax=vmax,
+    )
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    if add_colorbar:
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label("dB" if "Spectrogram" in title or np.nanmean(S) < 0 else "Amplitude")
+    plt.tight_layout()
+    return fig, ax
 
 def testFun(n):
     n2 = 2*n
@@ -194,13 +295,7 @@ def load_Processed_DAS_data(path2data):
 def wiggle(xx,yy,offset,clrLine,clrFill):
     plt.plot(xx,yy,'-',color=clrLine) # Normal wigigle    
     plt.fill_betweenx(yy,offset,xx,where=(x>=offset),color=clrFill) # Fill positive valuesc
-import sys
-sys.path.append('C:/Forskning/PythonCodes/simpleDAS')
-import simpledas
-import numpy as np
-import scipy as sp
-import matplotlib.pyplot as plt
-import pandas as pd
+    
 
 
 def nextpow2(n):
@@ -371,7 +466,7 @@ def fx_domain(data, Fs, padding, tprRate, flipping):
             dataF = np.concatenate( (data[i,nidxNot0:1:-1], data[i,:], data[i,-1:-nidxNot0:-1]) )
             window = timeDomainWindow('tukey', len(dataF), tprRate)
             data2fx = dataF*window
-            signal_FXdom[i,:], ff = my_fft(data2fx, Fs, True)
+            signal_FXdom[i,:], ff, phas = my_fft(data2fx, Fs, True)
 
             if i == 100:
                 plt.figure
@@ -380,7 +475,7 @@ def fx_domain(data, Fs, padding, tprRate, flipping):
                 plt.plot(data2fx,'black')
                 plt.plot(window*np.max(dataF),'blue')
                 plt.subplot(212)
-                plt.plot(abs(signal_FXdom[i,:]))
+                plt.plot(signal_FXdom[i,:])
                 plt.show()
                             
     elif padding == True and flipping == False:
@@ -388,7 +483,7 @@ def fx_domain(data, Fs, padding, tprRate, flipping):
  
         for i in range(data.shape[0]):    
             print(f'Working on channel {i+1} of {data.shape[0]}')
-            signal_FXdom[i,:], ff = my_fft(data[i,:]*window, Fs, True)         
+            signal_FXdom[i,:], ff, phas = my_fft(data[i,:]*window, Fs, True)         
 
     else:
         signal_FXdom = np.zeros( (np.int32(data.shape[0]), np.int32(data.shape[1])), dtype=float )
@@ -396,9 +491,9 @@ def fx_domain(data, Fs, padding, tprRate, flipping):
         for i in range(data.shape[0]):    
             print(f'Working on channel {i+1} of {data.shape[0]}')
             if tprRate != 0:
-                signal_FXdom[i,:], ff = my_fft(data[i,:]*window, Fs, False)
+                signal_FXdom[i,:], ff, phas= my_fft(data[i,:]*window, Fs, False)
             else:
-                signal_FXdom[i,:], ff = my_fft(data[i,:], Fs, False)
+                signal_FXdom[i,:], ff, phas = my_fft(data[i,:], Fs, False)
             
     return signal_FXdom, ff
 
@@ -490,6 +585,7 @@ def load_mat_files(path2data):
     """
     data = sp.io.loadmat(path2data)
     return data
+
 def wiggle(xx,yy,offset,clrLine,clrFill):
     plt.plot(xx,yy,'-',color=clrLine) # Normal wigigle    
     plt.fill_betweenx(yy,offset,xx,where=(x>=offset),color=clrFill) # Fill positive valuesc
@@ -772,3 +868,68 @@ def latlon_to_utm_svalbard(lat, lon):
     easting, northing = transformer.transform(lon, lat)
 
     return easting, northing, zone
+
+def _pick_utm_zone_norway_svalbard(lat: float, lon: float) -> int:
+    """
+    Choose UTM zone for WGS84 in Norway + Svalbard region, applying UTM exceptions:
+      - Svalbard (72–84N): 31/33/35/37 by lon
+      - Norway band V exception (56–64N & 3–12E): force zone 32
+    Falls back to standard UTM zone elsewhere.
+    """
+    # Normalize longitude to [-180, 180)
+    lon = ((lon + 180) % 360) - 180
+
+    # Svalbard special zones (lat band X, 72–84N)
+    if 72 <= lat < 84:
+        if 0 <= lon < 9:
+            return 31
+        elif 9 <= lon < 21:
+            return 33
+        elif 21 <= lon < 33:
+            return 35
+        elif 33 <= lon < 42:
+            return 37
+        else:
+            # Outside the Svalbard special longitudes; default to standard UTM
+            pass
+
+    # Norway band V exception (56–64N, 3–12E) -> zone 32
+    if 56 <= lat < 64 and 3 <= lon < 12:
+        return 32
+
+    # Standard UTM zone
+    zone = int(np.floor((lon + 180) / 6) + 1)
+    # Clamp to [1, 60] just in case
+    zone = max(1, min(60, zone))
+    return zone
+
+
+def latlon_to_utm_no(lat: float, lon: float):
+    """
+    Convert latitude/longitude (WGS84) to UTM easting/northing/zone
+    for mainland Norway + Svalbard, applying regional UTM exceptions.
+    Returns (easting, northing, zone).
+    """
+    zone = _pick_utm_zone_norway_svalbard(lat, lon)
+    crs_wgs84 = CRS.from_epsg(4326)
+    crs_utm = CRS.from_epsg(32600 + zone)  # Northern hemisphere UTM on WGS84
+    transformer = Transformer.from_crs(crs_wgs84, crs_utm, always_xy=True)
+    easting, northing = transformer.transform(lon, lat)
+    return easting, northing, zone
+
+
+def utm_to_latlon(easting: float, northing: float, zone: int):
+    """
+    Convert UTM (easting, northing, zone) to latitude/longitude (WGS84).
+    Assumes northern hemisphere (appropriate for Norway + Svalbard).
+    Returns (lat, lon).
+    """
+    if not (1 <= zone <= 60):
+        raise ValueError("UTM zone must be in 1..60.")
+    # All of Norway and Svalbard are in the northern hemisphere -> EPSG 326xx
+    crs_utm = CRS.from_epsg(32600 + zone)
+    crs_wgs84 = CRS.from_epsg(4326)
+    transformer = Transformer.from_crs(crs_utm, crs_wgs84, always_xy=True)
+    lon, lat = transformer.transform(easting, northing)
+    
+    return lat, lon
