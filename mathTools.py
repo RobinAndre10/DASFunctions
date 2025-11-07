@@ -6,6 +6,12 @@ import scipy as sp
 import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.signal import spectrogram, get_window
+from scipy.ndimage import gaussian_filter1d
+from scipy.signal import savgol_filter
+from scipy.interpolate import UnivariateSpline
+from obspy.signal.trigger import classic_sta_lta, recursive_sta_lta, plot_trigger
+import utm
+from pyproj import CRS, Transformer
 
 def compute_spectrogram(
     x,
@@ -117,39 +123,85 @@ def nextpow2(n):
     """
     return np.ceil(np.log2(n)).astype(int)
     
-def my_fft(signal, Fs, padding):
+import numpy as np
+
+def nextpow2(n):
+    """Return exponent p such that 2**p >= n."""
+    return int(np.ceil(np.log2(n)))
+
+
+def my_fft(signal, 
+           Fs, 
+           padding, 
+           return_psd=False):
     """
-    Function to find the index of the nearest value in an given array. 
-    ### INPUTS: ###
-    signal is a (nt,) vector containing a time seris. 
-    Fs is the sample rate of the signal. 
-    padding is a boolean that decides if the signal should be padded with zeros before the fft, default to the next power of two.
-    ### OUTPUTS: ###
-    SIGNAL is the fft of the signal. It has been fft shifted such that it is centered around zero.
-    ff is the frequency vector of the signal containing both positive and negative spectral components.
-    ffOnlyPos is the frequency vector of the signal containing only positive spectral components.
+    Compute amplitude, phase, and optionally power spectral density (PSD)
+    with both positive and negative frequencies (fftshifted).
+
+    Parameters
+    ----------
+    signal : array_like
+        Input time series (nt,).
+    Fs : float
+        Sampling rate [Hz].
+    padding : bool
+        If True, zero-pad to the next power of two before FFT.
+    return_psd : bool, optional
+        If True, compute and return two-sided fftshifted PSD [x^2/Hz].
+
+    Returns
+    -------
+    absSIGNAL : ndarray
+        Amplitude spectrum (|FFT| / N), fftshifted.
+    ff : ndarray
+        Two-sided frequency vector [Hz], fftshifted.
+    phaSIGNAL : ndarray
+        Phase spectrum [radians], fftshifted.
+    psdSIGNAL : ndarray (optional)
+        Two-sided PSD [x^2/Hz], fftshifted.
     """
+    signal = np.asarray(signal)
+    N = len(signal)
+
+    # Determine FFT length
     if padding:
-        nfft = 2 ** nextpow2(len(signal))
+        nfft = 2 ** nextpow2(N)
     else:
-        nfft = len(signal)
-    
-    # Compute FFT
-    SIGNAL = np.fft.fft(signal, nfft)
-    
-    # Normalize by the number of points 
-    SIGNAL = SIGNAL / nfft
+        nfft = N
 
-    # Shift the FFT
-    absSIGNAL = np.abs( np.fft.fftshift(SIGNAL) )
-    phaSIGNAL = np.angle( np.fft.fftshift(SIGNAL) ) 
+    # FFT and normalization
+    X = np.fft.fft(signal, nfft)
+    Xn = X / nfft  # normalized amplitude spectrum
 
-    # Frequency vector
-    ff = Fs * np.arange(-nfft/2, nfft/2) / nfft
+    # Compute amplitude and phase (fftshifted)
+    absSIGNAL = np.abs(np.fft.fftshift(Xn))
+    phaSIGNAL = np.angle(np.fft.fftshift(Xn))
+    ff = Fs * np.arange(-nfft / 2, nfft / 2) / nfft
 
-    return absSIGNAL, ff, phaSIGNAL
+    # Return amplitude and phase if PSD not requested
+    if not return_psd:
+        return absSIGNAL, ff, phaSIGNAL
 
-def timeDomainWindow(type, length, alpha):
+    # ----- PSD computation -----
+    # PSD scaling: |X(k)|^2 / (Fs * N)
+    PSD = (np.abs(X) ** 2) / (Fs * nfft)
+
+    # For real signals, we redistribute power symmetrically to negative freqs
+    if np.isrealobj(signal):
+        PSD_shifted = np.fft.fftshift(PSD)
+        # Ensure symmetry
+        PSD_shifted = np.real(PSD_shifted)
+    else:
+        PSD_shifted = np.fft.fftshift(PSD)
+
+    return absSIGNAL, ff, phaSIGNAL, PSD_shifted
+
+
+def timeDomainWindow(
+        type, 
+        length, 
+        alpha
+        ):
     """
     Function to generate a time domain window to be used in further, e.g., frequency domain operations. 
     
@@ -187,7 +239,13 @@ def demean_array(data):
     demeaned_data = data - mean_value
     return demeaned_data
 
-def filter_time_domain(data, filterOrder, filter_type, cutoff_freq, Fs, tprRate):
+def filter_time_domain(data, 
+                       filterOrder, 
+                       filter_type, 
+                       cutoff_freq, 
+                       Fs, 
+                       tprRate
+                       ):
     """
     Filter the input data in the time domain using a specified filter type and cutoff frequency.
     
@@ -292,19 +350,16 @@ def load_Processed_DAS_data(path2data):
 
     return data, meta, fileformat
 
-def wiggle(xx,yy,offset,clrLine,clrFill):
-    plt.plot(xx,yy,'-',color=clrLine) # Normal wigigle    
-    plt.fill_betweenx(yy,offset,xx,where=(x>=offset),color=clrFill) # Fill positive valuesc
-    
-
-
 def nextpow2(n):
     """
     Returns the exponent of the next power of 2 greater than or equal to n. Often used to improve the fft function.
     """
     return np.ceil(np.log2(n)).astype(int)
 
-def my_fft(signal, Fs, padding):
+def my_fft(signal, 
+           Fs, 
+           padding
+           ):
     """
     Function to find the index of the nearest value in an given array. 
     ### INPUTS: ###
@@ -327,7 +382,10 @@ def my_fft(signal, Fs, padding):
     #ffOnlyPos = Fs * np.arange(len(SIGNAL)/2) / len(SIGNAL)
     return SIGNAL, ff
 
-def timeDomainWindow(type, length, alpha):
+def timeDomainWindow(type, 
+                     length, 
+                     alpha
+                     ):
     """
     Function to generate a time domain window to be used in further, e.g., frequency domain operations. 
     
@@ -365,7 +423,13 @@ def demean_array(data):
     demeaned_data = data - mean_value
     return demeaned_data
 
-def filter_time_domain(data, filterOrder, filter_type, cutoff_freq, Fs, tprRate):
+def filter_time_domain(data, 
+                       filterOrder, 
+                       filter_type, 
+                       cutoff_freq, 
+                       Fs, 
+                       tprRate
+                       ):
     """
     Filter the input data in the time domain using a specified filter type and cutoff frequency.
     
@@ -431,7 +495,12 @@ def filter_time_domain(data, filterOrder, filter_type, cutoff_freq, Fs, tprRate)
     # Function done, return wanted value(s)
     return data_filtered
 
-def fx_domain(data, Fs, padding, tprRate, flipping):
+def fx_domain(data, 
+              Fs, 
+              padding, 
+              tprRate, 
+              flipping
+              ):
     """
     Function to transform the input 2-dimensional data to the f-x domain.
     Parameters:
@@ -497,40 +566,122 @@ def fx_domain(data, Fs, padding, tprRate, flipping):
             
     return signal_FXdom, ff
 
-def fk_domain(data, dx, dt, padding):
+def fk_domain(data, 
+              dx, 
+              dt, 
+              padding=True, 
+              ):
     """
-    Function that transform input data of size nx X nt (distance X time) to the f-k domain using a 2-dimensional fft.
-    Parameters:
-    data (numpy matrix, nx X nt): The input 2D-data matrix to be transformed.
-    dt (float): The sample rate of the time axis [s].
-    dx (float): The sample rate of the distance axis [m].
-    padding (boolean): A boolean that decides if the signal should be padded with zeros before the fft, default to the next power of two.
+    Forward 2D FFT (x,t) -> (k,f), with optional zero-padding to next power of two.
+
+    Returns
+    -------
+    amp : |F(k,f)|
+    kk, ff : 1D axes (fftshifted) for wavenumber [1/m] and frequency [Hz]
+    F_conv : complex f-k spectrum after optional conversion (fftshifted)
+    orig_shape : (nx, nt) for cropping on inverse
     """
+    nx, nt = data.shape
+    if padding:
+        npx = 2 ** nextpow2(nx)
+        npt = 2 ** nextpow2(nt)
+    else:
+        npx, npt = nx, nt
 
-    # Compute sample rate and Nyquist rate for wavenumber and frequency
-    print(f'Inpt: dx = {dx}, dt = {dt}')
-    kk_Nyq = 1 / (2*dx) 
-    ff_Nyq = 1 / (2*dt) 
-    print(f'Nyquist limits: kk_Nyq = {kk_Nyq}, ff_Nyq = {ff_Nyq}')
-    
-    if padding == True:
-        # Genereate wavenumber and frequency vectors
-        kk = np.arange(-kk_Nyq, kk_Nyq, 1/(2**nextpow2(np.shape(data)[0])*dx)) # With wavenunmber shift
-        ff = np.arange(-ff_Nyq, ff_Nyq, 1/(2**nextpow2(np.shape(data)[1])*dt)) # With frequency shift
-        # Transform the signal to the f-k domain
-        fft2_signal = np.fft.fftshift( np.fft.fft2(data,[2**nextpow2(np.shape(data)[0]), 2**nextpow2(np.shape(data)[1])]) ) # Transform the signal to the f-k domain with size (nx X nt), then fft shift to center the zero frequency and wavenumber
+    # Axes that align with the shifted spectrum
+    kk = np.fft.fftshift(np.fft.fftfreq(npx, d=dx))      # [1/m]
+    ff = np.fft.fftshift(np.fft.fftfreq(npt, d=dt))      # [Hz]
 
-    else: 
-        kk = np.arange(-kk_Nyq, kk_Nyq, 1/(np.shape(data,0)*dx)) # With wavenunmber shift
-        ff = np.arange(-ff_Nyq, ff_Nyq, 1/(np.shape(data,1)*dt)) # With frequency shift
-        fft2_signal = np.fft.fftshift( np.fft.fft2(data,[np.shape(data)[0], np.shape(data)[1]] ) ) # Transform the signal to the f-k domain with size (nx X nt), then fft shift to center the zero frequency and wavenumber
-    
-    amp_fft2_signal = np.abs(fft2_signal) # Compute the amplitude spectrum of the f-k domain signal
-    del fft2_signal
+    # Forward 2D FFT (pad to npx x npt), then center
+    F = np.fft.fftshift(np.fft.fft2(data, s=(npx, npt)))
+    amp = np.abs(F)
 
-    print(f'Size input matrix = {np.shape(data)}, shape 2D fft return = {np.shape(amp_fft2_signal)}')
+    kk_Nyq = 1/(2*dx)
+    ff_Nyq = 1/(2*dt)
+    print(f'Input: dx={dx}, dt={dt}, shape={data.shape}')
+    print(f'Nyquist: k={kk_Nyq:.3g} 1/m, f={ff_Nyq:.3g} Hz')
+    print(f'F(k,f) shape: {F.shape}')
 
-    return amp_fft2_signal, kk, ff 
+    return amp, kk, ff, (nx, nt), (kk_Nyq, ff_Nyq)
+
+def fk_domain_conversion(data, 
+                         dx, 
+                         dt, 
+                         padding=True, 
+                         convert2=None, 
+                         eps=1e-12
+                         ):
+    """
+    Forward 2D FFT (x,t) -> (k,f), with optional zero-padding to next power of two.
+
+    Returns
+    -------
+    amp : |F(k,f)|
+    kk, ff : 1D axes (fftshifted) for wavenumber [1/m] and frequency [Hz]
+    F_conv : complex f-k spectrum after optional conversion (fftshifted)
+    orig_shape : (nx, nt) for cropping on inverse
+    """
+    nx, nt = data.shape
+    if padding:
+        npx = 2 ** nextpow2(nx)
+        npt = 2 ** nextpow2(nt)
+    else:
+        npx, npt = nx, nt
+
+    # Axes that align with the shifted spectrum
+    kk = np.fft.fftshift(np.fft.fftfreq(npx, d=dx))      # [1/m]
+    ff = np.fft.fftshift(np.fft.fftfreq(npt, d=dt))      # [Hz]
+
+    # Forward 2D FFT (pad to npx x npt), then center
+    F = np.fft.fftshift(np.fft.fft2(data, s=(npx, npt)))
+    #amp = np.abs(F)
+
+    # Build 2D grids for broadcasting-safe algebra
+    # K has shape (npx, npt), W has shape (npx, npt)
+    K, W = np.meshgrid(2*np.pi*kk, 2*np.pi*ff, indexing='ij')    # W = ω = 2πf
+
+    # Optional unit conversions in the f-k domain
+    # NOTE: These factors assume you're starting from displacement U(k,f).
+    #   strain ε <-> U: ε = i k U         (or U = ε / (i k))
+    #   velocity v <-> U: v = i ω U       (or U = v / (i ω))
+    # If your input F is NOT displacement, adjust the factor accordingly.
+    if convert2 == 'strain':
+        # ε = (i k / (i ω)) * v   if input was velocity
+        # or ε = (i k) * U        if input was displacement
+        # Here we implement the ratio you used: multiply by k/ω with a small eps.
+        F_conv = F * (K / (W + eps))
+    elif convert2 == 'velocity':
+        # v = (i ω / (i k)) * U  -> multiply by ω/k with eps
+        F_conv = F * (W / (K + eps))
+    else:
+        F_conv = F
+
+    kk_Nyq = 1/(2*dx)
+    ff_Nyq = 1/(2*dt)
+    print(f'Input: dx={dx}, dt={dt}, shape={data.shape}')
+    print(f'Nyquist: k={kk_Nyq:.3g} 1/m, f={ff_Nyq:.3g} Hz')
+    print(f'F(k,f) shape: {F.shape}')
+
+    return kk, ff, F_conv, (nx, nt)
+
+# Inverse transform to get back t-x data in strain units
+def fk_inverse(Fk, 
+               orig_shape, 
+               padded=True
+               ):
+    """
+    Inverse 2D FFT (k,f) -> (x,t).
+    Fk must be fftshifted (zero at center), like fk_domain returns.
+    """
+    F_unshift = np.fft.ifftshift(Fk)
+    data_padded = np.fft.ifft2(F_unshift)
+    data_padded = np.real_if_close(data_padded, tol=1e5)
+
+    if padded:
+        nx, nt = orig_shape
+        return np.real(data_padded[:nx, :nt])
+    else:
+        return np.real(data_padded)
 
 class DASmeta:
     def __init__(self, path2data, dx, dt):
@@ -586,11 +737,18 @@ def load_mat_files(path2data):
     data = sp.io.loadmat(path2data)
     return data
 
-def wiggle(xx,yy,offset,clrLine,clrFill):
+def wiggle(xx,
+           yy,
+           offset,
+           clrLine,
+           clrFill
+           ):
     plt.plot(xx,yy,'-',color=clrLine) # Normal wigigle    
     plt.fill_betweenx(yy,offset,xx,where=(x>=offset),color=clrFill) # Fill positive valuesc
 
-def compute_RMS(data, axisNum):
+def compute_RMS(data, 
+                axisNum
+                ):
     """
     Compute the root mean square (RMS) of the input data along a specified axis.
     Parameters:
@@ -604,7 +762,9 @@ def compute_RMS(data, axisNum):
 
     return dataInRMS 
 
-def strain2strainRate(data, dt):
+def strain2strainRate(data, 
+                      dt
+                      ):
     """
     Convert strain data to strain rate data by temporal differentiation.
     
@@ -620,7 +780,9 @@ def strain2strainRate(data, dt):
     
     return strainRate
 
-def strainRate2strain(data, dt):
+def strainRate2strain(data, 
+                      dt
+                      ):
     """
     Convert strain rate data to strain data by temporal integration.
     
@@ -636,7 +798,12 @@ def strainRate2strain(data, dt):
     
     return strain
 
-def changeGaugeLength(data,oldROIDec,newGL,newROIDec,windowType):
+def changeGaugeLength(data,
+                      oldROIDec,
+                      newGL,
+                      newROIDec,
+                      windowType
+                      ):
     """
     INPUT:
     data = Original data with gauge length eqaul to 'oldGL' (size [time,space])
@@ -673,7 +840,12 @@ def changeGaugeLength(data,oldROIDec,newGL,newROIDec,windowType):
     return newData, newGL
 
  
-def makeAudioFile(signal, Fs, path2save, fileName, nMethod):
+def makeAudioFile(signal, 
+                  Fs, 
+                  path2save, 
+                  fileName,
+                  nMethod
+                  ):
     """
     Function to save a signal as an audio file.
    
@@ -737,9 +909,10 @@ def saveCSV(path2csv,filename,data,delimiter):
     None
     """
     data.to_csv(path2csv + filename, index=False, sep=delimiter)
-
     
-def concatenate_DAS_timeaxis(signal_part1,signal_part2):
+def concatenate_DAS_timeaxis(signal_part1,
+                             signal_part2
+                             ):
     """
     Function that will concatenate DAS data along the time axis. 
     As DAS data always start at 0 strain at the first time indes,
@@ -762,7 +935,11 @@ def concatenate_DAS_timeaxis(signal_part1,signal_part2):
 
     return signal 
 
-def channelBychannel_detection(trace,typeAlgo,nSTA,nLTA):
+def channelBychannel_detection(trace,
+                               typeAlgo,
+                               nSTA,
+                               nLTA
+                               ):
     """
     Function for extracting one detection for one trace.
 
@@ -778,7 +955,6 @@ def channelBychannel_detection(trace,typeAlgo,nSTA,nLTA):
     Return:
     idxTriggerTime: Index along the time axis for the detection.
     """
-    from obspy.signal.trigger import classic_sta_lta, recursive_sta_lta, plot_trigger
    
     if typeAlgo == 'stalta':
         cft = recursive_sta_lta( trace, nSTA, nLTA)
@@ -789,26 +965,34 @@ def channelBychannel_detection(trace,typeAlgo,nSTA,nLTA):
     return idxTriggerTime
 
 
-def geocoord2utmcoord(lat,lon):
+def geocoord2utmcoord(lat,
+                      lon
+                      ):
     """
     Simple script converting latitude longitude pair to utm pair.
-    """
-    import utm
+    """    
     easting, northing, zone_number, zone_letter = utm.from_latlon(lat, lon)
 
     return easting, northing, zone_number, zone_letter
 
-def utmcorrd2geocoord(easting, northing, zone_number, zone_letter):
+def utmcorrd2geocoord(easting, 
+                      northing, 
+                      zone_number,
+                      zone_letter
+                      ):
     """
     Simple script converting utm pair to latitude longitude pair.
     """
-    import utm
     lat, lon = utm.to_latlon(easting, northing, zone_number, zone_letter)
 
     return lat, lon
 
 
-def robust_polyfit(x, y, degree=1, norm=None):
+def robust_polyfit(x, 
+                   y, 
+                   degree=1, 
+                   norm=None
+                   ):
     """
     Robust polynomial fit using statsmodels.RLM.
     
@@ -840,9 +1024,9 @@ def robust_polyfit(x, y, degree=1, norm=None):
 
     return coeffs, y_fit
 
-from pyproj import CRS, Transformer
-
-def latlon_to_utm_svalbard(lat, lon):
+def latlon_to_utm_svalbard(lat, 
+                           lon
+                           ):
     """
     Converts latitude/longitude to UTM coordinates in the correct Svalbard zone.
     """
@@ -869,7 +1053,9 @@ def latlon_to_utm_svalbard(lat, lon):
 
     return easting, northing, zone
 
-def _pick_utm_zone_norway_svalbard(lat: float, lon: float) -> int:
+def _pick_utm_zone_norway_svalbard(lat: float, 
+                                   lon: float
+                                   ) -> int:
     """
     Choose UTM zone for WGS84 in Norway + Svalbard region, applying UTM exceptions:
       - Svalbard (72–84N): 31/33/35/37 by lon
@@ -904,7 +1090,9 @@ def _pick_utm_zone_norway_svalbard(lat: float, lon: float) -> int:
     return zone
 
 
-def latlon_to_utm_no(lat: float, lon: float):
+def latlon_to_utm_no(lat: float, 
+                     lon: float
+                     ):
     """
     Convert latitude/longitude (WGS84) to UTM easting/northing/zone
     for mainland Norway + Svalbard, applying regional UTM exceptions.
@@ -918,7 +1106,10 @@ def latlon_to_utm_no(lat: float, lon: float):
     return easting, northing, zone
 
 
-def utm_to_latlon(easting: float, northing: float, zone: int):
+def utm_to_latlon(easting: float, 
+                  northing: float, 
+                  zone: int
+                  ):
     """
     Convert UTM (easting, northing, zone) to latitude/longitude (WGS84).
     Assumes northern hemisphere (appropriate for Norway + Svalbard).
@@ -933,3 +1124,68 @@ def utm_to_latlon(easting: float, northing: float, zone: int):
     lon, lat = transformer.transform(easting, northing)
     
     return lat, lon
+
+def smooth_curve(
+    x,
+    y,
+    method="moving_average",
+    window_size=11,
+    polyorder=3,
+    sigma=2,
+    spline_smooth=None,
+):
+    """
+    Smooth a 1D curve using several possible methods.
+
+    Parameters
+    ----------
+    x : array_like
+        1D array of x-values (must be sorted).
+    y : array_like
+        1D array of y-values to smooth.
+    method : str
+        Smoothing method: 'moving_average', 'gaussian', 'savgol', 'spline'
+    window_size : int
+        Window length (odd number recommended for moving/savgol).
+    polyorder : int
+        Polynomial order for Savitzky–Golay filter.
+    sigma : float
+        Standard deviation for Gaussian filter.
+    spline_smooth : float or None
+        Smoothing factor for spline (None = automatic / exact fit).
+    show_plot : bool
+        If True, plot the original and smoothed curves.
+
+    Returns
+    -------
+    y_smooth : ndarray
+        Smoothed version of y.
+    """
+    x = np.asarray(x)
+    y = np.asarray(y)
+
+    # Ensure proper input
+    if len(x) != len(y):
+        raise ValueError("x and y must have the same length.")
+
+    # Choose method
+    if method == "moving_average":
+        kernel = np.ones(window_size) / window_size
+        y_smooth = np.convolve(y, kernel, mode="same")
+
+    elif method == "gaussian":
+        y_smooth = gaussian_filter1d(y, sigma=sigma, mode="nearest")
+
+    elif method == "savgol":
+        if window_size % 2 == 0:
+            window_size += 1  # must be odd
+        y_smooth = savgol_filter(y, window_length=window_size, polyorder=polyorder)
+
+    elif method == "spline":
+        spline = UnivariateSpline(x, y, s=spline_smooth)
+        y_smooth = spline(x)
+
+    else:
+        raise ValueError(f"Unknown method '{method}'. Choose from 'moving_average', 'gaussian', 'savgol', 'spline'.")
+
+    return y_smooth
