@@ -9,7 +9,7 @@ from scipy.signal import spectrogram, get_window
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
 from scipy.interpolate import UnivariateSpline
-from obspy.signal.trigger import classic_sta_lta, recursive_sta_lta, plot_trigger
+#from obspy.signal.trigger import classic_sta_lta, recursive_sta_lta, plot_trigger
 import utm
 from pyproj import CRS, Transformer
 
@@ -602,7 +602,7 @@ def fk_domain(data,
     print(f'Nyquist: k={kk_Nyq:.3g} 1/m, f={ff_Nyq:.3g} Hz')
     print(f'F(k,f) shape: {F.shape}')
 
-    return amp, kk, ff, (nx, nt), (kk_Nyq, ff_Nyq)
+    return amp, kk, ff, (nx, nt), (kk_Nyq, ff_Nyq), F
 
 def fk_domain_conversion(data, 
                          dx, 
@@ -1189,3 +1189,41 @@ def smooth_curve(
         raise ValueError(f"Unknown method '{method}'. Choose from 'moving_average', 'gaussian', 'savgol', 'spline'.")
 
     return y_smooth
+
+def ricker_wavelet(f, lengthTime, dt, t0):
+    t = np.arange(0, (lengthTime / 1) + dt, dt)
+    y = (1 - 2 * (np.pi**2) * (f**2) * ((t-t0)**2)) * np.exp(-(np.pi**2) * (f**2) * ((t-t0)**2))
+    return t, y
+
+
+# Function generating one sin wavelet with two frequencies for each period
+def sine_wave_two_frequencies(T1, T2, dt):
+    #T1 = 1
+    #T2 = T1*1.2
+    A1, A2 = 1.0, T1 / T2  # equal area condition
+    # Time vectors
+    t1 = np.arange(0, T1, dt) #np.linspace(0, T1, 1000)
+    t2 = np.arange(0, T2, dt) #np.linspace(0, T2, 1000)
+    dt = np.mean(np.diff(t1))
+    # Signals
+    y1 = A1 * np.sin(2 * np.pi * t1 / T1)
+    y2 = A2 * np.sin(2 * np.pi * t2 / T2)
+
+    # Combine
+    idxPos = np.where(y1 >= 0)[0]
+    idxNeg = np.where(y2 <= 0)[0]
+
+    yy = np.concatenate([y1[idxPos], y2[idxNeg[1]+1:]])
+    tt = np.arange(0, len(yy)) * dt
+
+    # Plot
+    plt.plot(t1, y1,'b')
+    plt.plot(t2, y2,'r')
+    plt.plot(tt, yy,'k')
+
+    plt.xlabel('Time')
+    plt.ylabel('Amplitude')
+    plt.title('Sine waves with equal area under each half-cycle')
+    plt.grid()
+    plt.show()
+    return tt, yy
