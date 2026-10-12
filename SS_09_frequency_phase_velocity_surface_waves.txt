@@ -1,0 +1,107 @@
+#%%
+# -*- coding: utf-8 -*-
+"""
+Make plot for paper
+"""
+# Clear variables
+for name in dir():
+    if not name.startswith('_'):
+        del globals()[name]
+ 
+#import matplotlib
+#matplotlib.use('TkAgg')  # Use the TkAgg backend for undocked plots
+import numpy as np
+import scipy as sp
+import matplotlib.pyplot as plt
+import pandas as pd
+import warnings
+import os
+import sys
+sys.path.append('C:/Forskning/Python')
+from DASFunctions.mathTools import filter_time_domain, timeDomainWindow, fk_domain
+
+# Chose what to plot
+path2data = 'D:\\Svalbard_cleaning\\NORSAR01\\mat4paper'
+fkPlotting = 'all'
+
+from scipy.io import loadmat
+path2matsave = path2data + '\\Svalbard_whale_LF_DAS_20220824_1457_1799s.mat'
+data = loadmat(path2matsave, squeeze_me=True, simplify_cells=True)  # simplify_cells requires SciPy ≥1.8
+signalChar = np.asarray(data["signal"])        
+xxChar     = np.asarray(data["xx"]).ravel()    
+dx         = np.mean( np.diff(xxChar) )
+ttChar     = np.asarray(data["tt"]).ravel()  
+dt         = np.mean( np.diff(ttChar) )
+ttAbs      = np.asarray(data["ttAbs"]).ravel()    
+# Extract start time for plotting
+_arr = ttAbs[0]                      # one element from your array
+_ts = pd.to_datetime(_arr).round('s')  # pandas Timestamp rounded to nearest second
+hh, mm, ss = _ts.hour, _ts.minute, _ts.second
+
+del data
+
+# %% Filter and remove common-mode noise
+Fs = 1 /(ttChar[1]-ttChar[0])
+ 
+cutOffFreq = [0.5, Fs/2*0.9]
+filterOrder = 4
+tprRate = 0.1
+
+signal_filt = np.zeros(signalChar.shape)
+for ii in range(len(xxChar)):
+    signal_filt[ii,:] = filter_time_domain(signalChar[ii,:], filterOrder, 'bp', cutOffFreq, Fs, tprRate) # Filter the signal in the time domain using a bandpass filter with a cutoff frequency of 1 Hz and 40 Hz. The filter order is set to 4. 
+signal_filt = signal_filt - np.median(signal_filt, axis=0)
+
+# Plot the data
+ttMin = ttChar/60
+xx = xxChar/1000
+itSignal = np.arange( np.where(ttMin <= 14.97)[0][-1], np.where(ttMin <= 15.25)[0][-1], 1)
+ixSignal = np.arange( np.where(xxChar <= 5450)[0][-1], np.where(xxChar <= 7250)[0][-1], 1)
+
+tt = ttMin[itSignal]
+xx = xxChar[ixSignal]/1000
+
+#  2D tapering
+# Signal window to use
+signal_befor_Window = signal_filt[np.ix_(ixSignal,itSignal)]
+window_Ch = timeDomainWindow('tukey', signal_befor_Window.shape[0], 0.1)
+signal_befor_Window_x = signal_befor_Window * ( window_Ch[:, np.newaxis] * np.ones((1,signal_befor_Window.shape[1])) )
+
+window_tt = timeDomainWindow('tukey', signal_befor_Window_x.shape[1], 0.1)
+signal_after_Window = signal_befor_Window_x.T * ( window_tt[:, np.newaxis] * np.ones((1,signal_befor_Window_x.shape[0])) )
+signal_4_trans = signal_after_Window.T
+
+#  t-x domain plot
+plt.figure(figsize=(13,8.27))
+im=plt.imshow( signal_4_trans.T , extent=[xx.min(),xx.max(),tt.max(),tt.min()], aspect='auto', cmap='bwr')
+plt.xticks( fontsize=14)
+plt.yticks( fontsize=14)
+plt.clim(-1e-10,1e-10)
+plt.xlabel('Distance along fiber (km)', fontdict={'fontsize': 14, 'fontweight': 'bold', 'color':'black'})
+plt.ylabel(f'Time (min) after {hh}:{mm}:{ss}0', fontdict={'fontsize': 14, 'fontweight': 'bold', 'color':'black'})
+plt.title(f'Whale calls, higher frequencies', fontdict={'fontsize': 14, 'fontweight': 'bold', 'color':'black'})
+plt.show()
+
+# %% f-k domain
+
+ampSpect_fk, kk, ff, (nx, nt), (kk_Nyq, ff_Nyq) = fk_domain(signal_4_trans, dx, dt, padding=True) 
+
+# Extract positive frequencies for plotting - to speed up
+idx_ffPos = np.where( ff >= 0 )[0]
+ffPos = ff[idx_ffPos]
+ampSpect_fk_Pos = ampSpect_fk[:,idx_ffPos]  
+
+plt.figure(figsize=(13,8.27))
+
+im=plt.imshow( 20*np.log10( np.abs(ampSpect_fk_Pos.T)**2/(Fs*nx*nt)) , extent=[kk.min(),kk.max(),ffPos.max(),0], aspect='auto', cmap='bwr')
+plt.xticks( fontsize=14)
+plt.yticks( fontsize=14)
+plt.xlabel(f'Wavenumber (1/s)', fontdict={'fontsize': 14, 'fontweight': 'bold', 'color':'black'})
+plt.ylabel(f'Frequency (1/s)', fontdict={'fontsize': 14, 'fontweight': 'bold', 'color':'black'})
+plt.colorbar()
+plt.tight_layout()
+plt.ylim(0,15)
+plt.clim(-500,-380)
+plt.show()                                                    
+
+# %% f- phase velocity domain
